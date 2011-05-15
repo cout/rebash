@@ -19,7 +19,7 @@ void rebash_display(void)
   RUBY_INIT_STACK;
   int state = 0;
 
-  state = rb_protect(rebash_call_ruby_redisplay, Qnil, &state);
+  rb_protect(rebash_call_ruby_redisplay, Qnil, &state);
 
   if (state == 6)
   {
