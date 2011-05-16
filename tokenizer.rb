@@ -37,7 +37,7 @@ class Tokenizer
   SH_SYNTAXTAB[?|] = SyntabEntry.new(:cshmeta, :cshbrk)
   SH_SYNTAXTAB[?\177] = SyntabEntry.new(:cspecl)
 
-  EOF = Object.new
+  EOF = nil
 
   def mbtest(expr)
     # return expr && (@shell_input_line_index > 1) ? shell_input_line_property[shell_input_line_index - 1] : 1
@@ -66,6 +66,14 @@ class Tokenizer
 
   def shell_ungetc(c)
     @a.push(c)
+  end
+
+  def tokenize
+    a = [ ]
+    while token = read_token() do
+      a.push(token)
+    end
+    return a
   end
 
   def read_token
@@ -97,9 +105,7 @@ class Tokenizer
       while (character = shell_getc(1)) and shellblank(character) do
       end
 
-      if character == EOF then
-        return EOF
-      end
+      return EOF if character == EOF
 
       if mbtest(character == ?# && (not @interactive or @interactive_comments)) then
         # A comment.  Discard until EOL or EOF, and then return a newline.
