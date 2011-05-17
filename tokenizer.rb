@@ -89,7 +89,9 @@ class Tokenizer
   end
 
   def shell_getc(remove_quoted_newline)
-    return @a.pop
+    c = @a.pop
+    debug_log("getc returning #{c}")
+    return c 
   end
 
   def shell_ungetc(c)
@@ -139,8 +141,10 @@ class Tokenizer
     end
 
     while true do
+      debug_log("at top of loop")
+
       # Read a single word from input.  Start by skipping blanks.
-      while (character = shell_getc(1)) and shellblank(character) do
+      while (character = shell_getc(1)) != EOF and shellblank(character) do
       end
 
       return EOF if character == EOF
@@ -314,15 +318,19 @@ class Tokenizer
       # Okay, if we got this far, we have to read a word.  Read one, and
       # then check it against the known ones.
       result = read_token_word(character)
+      debug_log("read_token_word returned #{result}")
       if result != RE_READ_TOKEN then
         return result
       else
+        debug_log("re-reading")
         next
       end
     end
   end
 
   def read_token_word(character)
+    debug_log("read_token_word")
+
     dollar_present = false # becomes true if we see a `$'
     quoted = false         # becomes true if we see one of ("), ('), (`), or (\)
     pass_next_character = false # true means to ignore the value of the next character and just to add it no matter what
@@ -453,6 +461,8 @@ class Tokenizer
     }
 
     while true do
+      debug_log("at top of read token word loop")
+
       if character == EOF then
         return got_token()
       end
@@ -460,7 +470,7 @@ class Tokenizer
       if pass_next_character then
         @pass_next_character = false
         got_escaped_character()
-        continue
+        next
       end
 
       cd = current_delimiter(@dstack)
@@ -468,6 +478,7 @@ class Tokenizer
       # Handle backslashes.  Quote lots of things when not inside of
       # double-quotes, quote some things inside of double-quotes.
       if mbtest(character == ?\\) then
+        debug_log("backslash")
         peek_char = shell_getc(0)
 
         # Backslash-newline is ignored in all cases except when quoted
@@ -475,7 +486,7 @@ class Tokenizer
         if peek_char == ?\n then
           character == ?\n
           next_character()
-          continue
+          next
         else
           shell_ungetc(peek_char)
 
@@ -488,114 +499,117 @@ class Tokenizer
           got_character()
           next
         end
+      end
 
-        # Parse a matched pair of quote characters.
-        if mbtest(shellquote(character)) then
-          push_delimiter(@dstack, character)
-          ttok = parse_matched_pair(character, character, character, (character == ?`) ? P_COMMAND : 0)
-          token << character.chr
-          token << ttok
-          all_digit_token = false
-          quoted = true
-          dollar_present ||= (character == ?" && strchr(ttok, ?$) != 0)
-          next_character()
+      # Parse a matched pair of quote characters.
+      if mbtest(shellquote(character)) then
+        debug_log("shellquote")
+        push_delimiter(@dstack, character)
+        ttok = parse_matched_pair(character, character, character, (character == ?`) ? P_COMMAND : 0)
+        token << character.chr
+        token << ttok
+        all_digit_token = false
+        quoted = true
+        dollar_present ||= (character == ?" && strchr(ttok, ?$) != 0)
+        next_character()
+        next
+      end
+
+      # When parsing a regexp as a single word inside a conditional
+      # command, we need to special-case characters special to both
+      # the shell and regular expressions.  Right now, that is only
+      # '(' and '|'.
+      if mbtest(@pst_regexp && (character == ?( || character == ?|)) then
+        debug_log("regexp")
+        if character == ?| then
+          got_character()
           next
         end
 
-        # When parsing a regexp as a single word inside a conditional
-        # command, we need to special-case characters special to both
-        # the shell and regular expressions.  Right now, that is only
-        # '(' and '|'.
-        if mbtest(@pst_regexp && (character == ?( || character == ?|)) then
-          if character == ?| then
-            got_character()
-            next
-          end
+        push_delimiter(@dstack, character)
+        ttok = parse_matched_pair(cd, ?(, ?), 0)
+        token << character.chr
+        token << ttok
+        dollar_present = false
+        all_digit_token = false
+        next_character()
+        next
+      end
 
-          push_delimiter(@dstack, character)
+      # Parse a ksh-style extended pattern matching specification.
+      if mbtest(extended_glob && PATTERN_CHAR(character)) then
+        debug_log("extended glob")
+        peek_char = shell_getc(1)
+        if mbtest(peek_char == ?() then
+          push_delimiter(@dstack, peek_char)
           ttok = parse_matched_pair(cd, ?(, ?), 0)
+          pop_delimiter(@dstack)
           token << character.chr
           token << ttok
           dollar_present = false
           all_digit_token = false
           next_character()
           next
+        else
+          shell_ungetc(peek_char)
         end
+      end
 
-        # Parse a ksh-style extended pattern matching specification.
-        if mbtest(extended_glob && PATTERN_CHAR(character)) then
-          peek_char = shell_getc(1)
-          if mbtest(peek_char == ?() then
+      # If the delimiter character is not single quote, parse some of
+      # the shell expansions that must be read as a single word.
+      if shellexp(character) then
+        peek_char = shell_getc(1)
+        # $(...), <(...), >(...), $((...)), ${...}, and $[...]
+        # constructs
+        if mbtest(peek_char == ?( ||
+                  ((peek_char == ?{ || peek_char == ?[) && character == ?$)) then
+          if peek_char == ?{ then
+            ttok = parse_matched_pair(cd, ?{, ?}, P_FIRSTCLOSE)
+          elsif peek_char == ?( then
+            # XXX - push and pop the `(' as a delimiter for use by the
+            # command-oriented-history code.  This way newlines
+            # appearing in the $(...) string get added to the history
+            # literally rather than causing a possibly-incorrect `;'
+            # to be added.
             push_delimiter(@dstack, peek_char)
-            ttok = parse_matched_pair(cd, ?(, ?), 0)
+            ttok = parse_comsub(cd, ?(, ?), P_COMMAND)
             pop_delimiter(@dstack)
-            token << character.chr
-            token << ttok
-            dollar_present = false
-            all_digit_token = false
-            next_character()
-            next
           else
-            shell_ungetc(peek_char)
+            ttok = parse_matched_pair(cd, ?[, ?], 0)
           end
-        end
 
-        # If the delimiter character is not single quote, parse some of
-        # the shell expansions that must be read as a single word.
-        if shellexp(character) then
-          peek_char = shell_getc(1)
-          # $(...), <(...), >(...), $((...)), ${...}, and $[...]
-          # constructs
-          if mbtest(peek_char == ?( ||
-                    ((peek_char == ?{ || peek_char == ?[) && character == ?$)) then
-            if peek_char == ?{ then
-              ttok = parse_matched_pair(cd, ?{, ?}, P_FIRSTCLOSE)
-            elsif peek_char == ?( then
-              # XXX - push and pop the `(' as a delimiter for use by the
-              # command-oriented-history code.  This way newlines
-              # appearing in the $(...) string get added to the history
-              # literally rather than causing a possibly-incorrect `;'
-              # to be added.
-              push_delimiter(@dstack, peek_char)
-              ttok = parse_comsub(cd, ?(, ?), P_COMMAND)
-              pop_delimiter(@dstack)
-            else
-              ttok = parse_matched_pair(cd, ?[, ?], 0)
-            end
+          token << character.chr
+          token << peek_char.chr
+          token << ttok
+          dollar_present = true
+          all_digit_token = false
+          next_character()
+          next
 
-            token << character.chr
-            token << peek_char.chr
-            token << ttok
-            dollar_present = true
-            all_digit_token = false
-            next_character()
-            next
+        # This handles $'...' and $"..." new-style quoted strings.
+        elsif mbtest(character == ?$ && (peek_char == ?' || peek_char == ?")) then
+          first_line = line_number
+          push_delimiter(@dstack, peek_char)
+          ttok = parse_matched_pair(peek_char, peek_char, peek_char, (peek_char == ?') ? P_ALLOWESC : 0)
+          pop_delimiter(@dstack)
+          if peek_char == ?' then
+            ttrans = ansiexpand(ttok, 0)
+            ttok = sh_single_quote(ttrans)
+            ttrans = ttok
+          else
+            # Try to locale-expand the converted string.
+            ttrans = localeexpand(ttok, 0, first_line)
 
-          # This handles $'...' and $"..." new-style quoted strings.
-          elsif mbtest(character == ?$ && (peek_char == ?' || peek_char == ?")) then
-            first_line = line_number
-            push_delimiter(@dstack, peek_char)
-            ttok = parse_matched_pair(peek_char, peek_char, peek_char, (peek_char == ?') ? P_ALLOWESC : 0)
-            pop_delimiter(@dstack)
-            if peek_char == ?' then
-              ttrans = ansiexpand(ttok, 0)
-              ttok = sh_single_quote(ttrans)
-              ttrans = ttok
-            else
-              # Try to locale-expand the converted string.
-              ttrans = localeexpand(ttok, 0, first_line)
-
-              # Add the double quotes back
-              ttok = sh_mkdoublequoted(ttrans, 0)
-              ttrans = ttok
-            end
-
-            token << ttrans
-            quoted = true
-            all_digit_token = false
-            next_character()
-            next
+            # Add the double quotes back
+            ttok = sh_mkdoublequoted(ttrans, 0)
+            ttrans = ttok
           end
+
+          token << ttrans
+          quoted = true
+          all_digit_token = false
+          next_character()
+          next
 
         # This could eventually be extended to recognize all of the
         # shell's single-character parameter expansions, and set
