@@ -1,4 +1,16 @@
 class Tokenizer
+  class Token
+    attr_reader :name
+    def initialize(name)
+      @name = name
+    end
+  end
+
+  # Tokens
+  WORD = Token.new("WORD")
+  ARITH_FOR_EXPRS = Token.new("ARITH_FOR_EXPRS")
+  TIME = Token.new("TIME")
+
   SyntabEntryStruct = Struct.new(
       :cword, :cspecl, :cshbrk, :cblank, :cbsdquote, :cglob, :cxglob,
       :cspecvar, :cquote, :cxquote, :cexp, :cbshdoc, :cshmeta, :cshglob,
@@ -39,13 +51,112 @@ class Tokenizer
 
   EOF = nil
 
+  CTLESC = ?\001
+  CTLNUL = ?\177
+
   YYLVAL = Struct.new(:word, :command, :number)
 
   DStack = Struct.new(:delimiters, :delimiter_depth, :delimeter_space)
 
   def mbtest(expr)
-    # return expr && (@shell_input_line_index > 1) ? shell_input_line_property[shell_input_line_index - 1] : 1
+    # TODO: return expr && (@shell_input_line_index > 1) ? shell_input_line_property[shell_input_line_index - 1] : 1
     return expr
+  end
+
+  def last_shell_getc_is_singlebyte
+    # TODO: return shell_input_line_index > 1 ?
+    # shell_input_line_property[shell_input_line_index - 1] : 1
+    return true
+  end
+
+  # Handle special cases of token recognition:
+  #   IN is recognized if the last token was WORD and the token before
+  #   that was FOR or CASE or SELECT.
+  #
+  #   DO is recognized if the last token was WORD and the token before
+  #   that was FOR or SELECT.
+  #
+  #   ESAC is recognized if the last token caused `esacs_needed_count'
+  #   to be set.
+  #
+  #   `{' is recognized if the last token was WORD and the token before
+  #   that was FUNCTION, or if we just parsed an arithmetic `for'
+  #   command.
+  #
+  #   `}' is recognized if there is an unclosed '{' present.
+  #
+  #   `-p' is recognized as TIMEOPT if the last read token was TIME.
+  #
+  #   ']]' is returned as COND_END if the parser is currently parsing a
+  #   conditional expression ((parser_state & PST_CONDEXPR) != 0)
+  #
+  #   `time' is returned as TIME if and only if it is immediately
+  #   preceded by one of `:', `\n', `||', `&&', or `&'.
+  def special_case_tokens(tokstr)
+    if (@last_read_token == WORD) &&
+       (@token_before_that == FOR || @token_before_that == CASE || @token_before_that == SELECT) &&
+       (tokstr == "in") then
+      if @token_before_that == CASE
+        @pst_casepat = true
+        @esacs_needed_count += 1
+      end
+      return IN
+    end
+
+    if (@last_read_token == WORD) &&
+          (@token_before_that == FOR || @token_before_that == SELECT) &&
+          (tokstr == "do")
+      return DO
+    end
+
+    # Ditto for ESAC in the CASE case.
+    # Specifically, this handles "case word in esac", which is a legal
+    # construct, certainly because someone will base an empty arg to the
+    # case construct, and we don't want it to barf.  Of course, we
+    # should insist that the case construct has at least one pattern in
+    # it, but the designers disagree.
+    if (@esacs_needed_count > 0) then
+      @esacs_needed_count -= 1
+      if tokstr == "esac" then
+        @pst_casepat = false
+        return ESAC
+      end
+    end
+
+    if @pst_allowopnbrc then
+      @pst_allowopnbrc = false
+      if tokstr == '{' then
+        @open_brace_count += 1
+        @function_bstart = @line_number
+        return '{'
+      end
+    end
+
+    # We allow a `do' after a for ((...)) without an intervening
+    # list_terminator.
+    if @last_read_token == ARITH_FOR_EXPRS && tokstr == "do" then
+      return DO
+    end
+
+    if @last_read_token == ARITH_FOR_EXPRS && tokstr == '{' then
+      @open_brace_count += 1
+      return '{'
+    end
+
+    if @open_brace_count > 0 && reserved_word_acceptable(@last_read_token) && tokstr == '}' then
+      @open_brace_count -= 1
+    end
+
+    # Handle -p after `time'.
+    if @last_read_token == TIME && tokstr == '-[' then
+      return TIMEOPT
+    end
+
+    if @pst_condexpr && tokstr == ']]' then
+      return COND_END
+    end
+
+    raise "Bad special case token: #{tokstr.inspect}"
   end
 
   def shellmeta(c)
@@ -100,11 +211,14 @@ class Tokenizer
     #   @extended_glob = global_extglob
     # end
     @extended_glob = false
+
+    @esacs_needed_count = 0
+    @open_brace_count = 0
   end
 
   def shell_getc(remove_quoted_newline)
     c = @a.pop
-    debug_log("getc returning #{c}")
+    debug_log("getc returning #{c ? c.chr : 'nil'}")
     return c 
   end
 
@@ -342,6 +456,10 @@ class Tokenizer
     end
   end
 
+  def digit(character)
+    return [?0, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9].include?(character)
+  end
+
   def read_token_word(character)
     debug_log("read_token_word")
 
@@ -349,6 +467,9 @@ class Tokenizer
     quoted = false         # becomes true if we see one of ("), ('), (`), or (\)
     pass_next_character = false # true means to ignore the value of the next character and just to add it no matter what
     compound_assignment = false # becomes true if we are parsing a compound assignment
+
+    token = ""
+    all_digit_token = digit(character)
 
     next_character = proc {
       if character == ?\n and should_prompt() then
@@ -366,19 +487,17 @@ class Tokenizer
       all_digit_token &&= DIGIT(character)
       dollar_present ||= (character == ?$)
 
-      token[token_index] = character
-      token_index += 1
+      token << character.chr
 
-      next_character()
+      next_character.call()
     }
 
     got_character = proc {
       if character == CTLESC or character == CTLNUL then
-        token[token_index] = CTLESC
-        token_index += 1
+        token << CTLESC.chr
       end
 
-      got_escaped_character()
+      got_escaped_character.call()
     }
 
     got_token = proc {
@@ -427,7 +546,7 @@ class Tokenizer
       the_word.word = token
       the_word.hasdollar = dollar_present
       the_word.quoted = quoted
-      the_word.compassign = (compound_assignment && token[token_index-1] == ?))
+      the_word.compassign = (compound_assignment && token[-1] == ?))
 
       if assignment(token, @pst_compassign) then
         the_word.assignment = true
@@ -450,7 +569,7 @@ class Tokenizer
 
       @yylval.word = the_word
 
-      if token[0] == ?{ and token[token_index-1] == ?} and (character == ?< or character == ?>) then
+      if token[0] == ?{ and token[-1] == ?} and (character == ?< or character == ?>) then
         # can use token; already copied to the_word
         if legal_identifier(token+1) then
           the_word.word = token+1
@@ -478,12 +597,12 @@ class Tokenizer
       debug_log("at top of read token word loop")
 
       if character == EOF then
-        return got_token()
+        return got_token.call()
       end
 
       if pass_next_character then
         @pass_next_character = false
-        got_escaped_character()
+        got_escaped_character.call()
         next
       end
 
@@ -499,7 +618,7 @@ class Tokenizer
         # with single quotes.
         if peek_char == ?\n then
           character == ?\n
-          next_character()
+          next_character.call()
           next
         else
           shell_ungetc(peek_char)
@@ -510,7 +629,7 @@ class Tokenizer
           end
 
           quoted = true
-          got_character()
+          got_character.call()
           next
         end
       end
@@ -525,7 +644,7 @@ class Tokenizer
         all_digit_token = false
         quoted = true
         dollar_present ||= (character == ?" && strchr(ttok, ?$) != 0)
-        next_character()
+        next_character.call()
         next
       end
 
@@ -536,7 +655,7 @@ class Tokenizer
       if mbtest(@pst_regexp && (character == ?( || character == ?|)) then
         debug_log("regexp")
         if character == ?| then
-          got_character()
+          got_character.call()
           next
         end
 
@@ -546,7 +665,7 @@ class Tokenizer
         token << ttok
         dollar_present = false
         all_digit_token = false
-        next_character()
+        next_character.call()
         next
       end
 
@@ -562,7 +681,7 @@ class Tokenizer
           token << ttok
           dollar_present = false
           all_digit_token = false
-          next_character()
+          next_character.call()
           next
         else
           shell_ungetc(peek_char)
@@ -598,7 +717,7 @@ class Tokenizer
           token << ttok
           dollar_present = true
           all_digit_token = false
-          next_character()
+          next_character.call()
           next
 
         # This handles $'...' and $"..." new-style quoted strings.
@@ -633,7 +752,7 @@ class Tokenizer
           token << ttok
           dollar_present = true
           all_digit_token = false
-          next_character()
+          next_character.call()
           next
         else
           shell_ungetc(peek_char)
@@ -643,7 +762,7 @@ class Tokenizer
       # @pst_comassign, we need to parse [sub]=words treating `sub' as
       # if it were enclosed in double quotes.
       elsif mbtest(character == ?[ &&
-                   ((token_index > 0 && assignment_acceptable(last_read_token) && token_is_ident(token, token_index)) or
+                   ((token.length > 0 && assignment_acceptable(last_read_token) && token_is_ident(token)) or
                     (token == 0 && @pst_compassign))) then
         debug_log('possible array subscript assignment')
         ttok = parse_matched_pair(cd, ?[, ?], P_ARRAYSUB)
@@ -652,15 +771,14 @@ class Tokenizer
         all_digit_token = false
 
         # Identify possible compound array variable assignment.
-      elsif mbtest(character == ?= && token_index > 0 && (assignment_acceptable(last_read_token) || @pst_assignok) && token_is_assignment(token, token_ident)) then
+      elsif mbtest(character == ?= && token.length() > 0 && (assignment_acceptable(last_read_token) || @pst_assignok) && token_is_assignment(token, token_ident)) then
         peek_char = shell_getc(1)
         if mbtest(peek_char == ?() then
           ttok = parse_compound_assignment()
           token << "=(#{ttok})"
-          token_index += 1
           all_digit_token = false
           compound_assignment = true
-          next_character()
+          next_character.call()
           next
         else
           shell_ungetc(peek_char)
@@ -678,6 +796,8 @@ class Tokenizer
 
       debug_log("end of loop")
     end
+
+    got_token.call()
   end
 end
 
