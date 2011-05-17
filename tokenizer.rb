@@ -8,8 +8,35 @@ class Tokenizer
 
   # Tokens
   WORD = Token.new("WORD")
+  ASSIGNMENT_WORD = Token.new("ASSIGNMENT_WORD")
   ARITH_FOR_EXPRS = Token.new("ARITH_FOR_EXPRS")
   TIME = Token.new("TIME")
+  SEMI_SEMI = Token.new("SEMI_SEMI")
+  SEMI_AND = Token.new("SEMI_AND")
+  SEMI_SEMI_AND = Token.new("SEMI_SEMI_AND")
+  AND_AND = Token.new("AND_AND")
+  BANG = Token.new("BANG")
+  BAR_AND = Token.new("BAR_AND")
+  DO = Token.new("DO")
+  DONE = Token.new("DONE")
+  ELIF = Token.new("ELIF")
+  ELSE = Token.new("ELSE")
+  ESAC = Token.new("ESAC")
+  FI = Token.new("FI")
+  IF = Token.new("IF")
+  OR_OR = Token.new("OR_OR")
+  THEN = Token.new("THEN")
+  TIMEOPT = Token.new("TIMEOPT")
+  COPROC = Token.new("COPROC")
+  UNTIL = Token.new("UNTIL")
+  WHILE = Token.new("WHILE")
+  FUNCTION = Token.new("FUNCTION")
+  CASE = Token.new("CASE")
+  SELECT = Token.new("SELECT")
+  FOR = Token.new("FOR")
+  RE_READ_TOKEN = Token.new("RE_READ_TOKEN")
+
+  WordDesc = Struct.new(:word, :hasdollar, :quoted, :compassign, :nosplit, :assignment)
 
   SyntabEntryStruct = Struct.new(
       :cword, :cspecl, :cshbrk, :cblank, :cbsdquote, :cglob, :cxglob,
@@ -67,6 +94,26 @@ class Tokenizer
     # TODO: return shell_input_line_index > 1 ?
     # shell_input_line_property[shell_input_line_index - 1] : 1
     return true
+  end
+
+  # Return true if TOKSYM is a token that after being read would allow a
+  # reserved word to be seen, else 0.
+  def reserved_word_acceptable(toksym)
+    if [ ?\n, ?;, ?(, ?), ?|, ?&, ?{, ?}, AND_AND, BANG, BAR_AND, DO, DONE, ELIF, ELSE, ESAC, FI, IF, OR_OR, SEMI_SEMI, SEMI_AND, SEMI_SEMI_AND, THEN, TIME, TIMEOPT, COPROC, UNTIL, WHILE, ?\000 ].include?(toksym) then
+      return true
+    else
+      if @last_read_token == WORD && @token_before_that == COPROC then
+        return true
+      else
+        return false
+      end
+    end
+  end
+
+  def command_token_position(token)
+    return token == ASSIGNMENT_WORD ||
+      @pst_redirlist ||
+        (token != SEMI_SEMI && token != SEMI_AND && token != SEMI_SEMI_AND && reserved_word_acceptable(token))
   end
 
   # Handle special cases of token recognition:
@@ -156,7 +203,7 @@ class Tokenizer
       return COND_END
     end
 
-    raise "Bad special case token: #{tokstr.inspect}"
+    return nil
   end
 
   def shellmeta(c)
@@ -214,6 +261,8 @@ class Tokenizer
 
     @esacs_needed_count = 0
     @open_brace_count = 0
+
+    @expand_aliases = false
   end
 
   def shell_getc(remove_quoted_newline)
@@ -456,6 +505,17 @@ class Tokenizer
     end
   end
 
+  # Returns non-nil if the string is an assignment statement.  The
+  # returned value is the index of the '=' sign.
+  def assignment(string, flags)
+    # TODO: ARRAY_VARS
+    if string =~ /^\w+=/ then
+      return string.index('=')
+    else
+      return nil
+    end
+  end
+
   def digit(character)
     return [?0, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9].include?(character)
   end
@@ -514,21 +574,19 @@ class Tokenizer
       end
 
       # Check for special case tokens.
-      result = last_shell_getc_is_singlebyte ? special_case_tokens(token) : -1
-      if result >= 0 then
-        return result
-      end
+      result = last_shell_getc_is_singlebyte ? special_case_tokens(token) : nil
+      return result if result
 
       # Posix.2 does not allow reserved words to be aliased, so check
       # for all of them including special cases, before expanding the
       # current token as an alias.
-      if mbtest(posixly_correct) then
+      if mbtest(@posixly_correct) then
         check_for_reserved_word(token)
       end
 
       # Aliases are expanded iff EXPAND_ALIASES is non-zero, and quoting
       # inhibits alias expansion.
-      if expand_aliases and quoted == 0 then
+      if @expand_aliases and quoted == 0 then
         result = alias_expand_token(token)
         if result == RE_READ_TOKEN then
           return RE_READ_TOKEN
@@ -539,10 +597,11 @@ class Tokenizer
 
       # If not in Posix.2 mode, check for reserved words after alias
       # expansion.
-      if mbtest(posixly_correct == 0) then
+      if mbtest(@posixly_correct == 0) then
         check_for_reserved_word(token)
       end
 
+      the_word = WordDesc.new
       the_word.word = token
       the_word.hasdollar = dollar_present
       the_word.quoted = quoted
@@ -552,13 +611,13 @@ class Tokenizer
         the_word.assignment = true
 
         # Don't perform word splitting on assignment statements.
-        the_word.nosplit = assignment_acceptable(last_read_token) or @pst_compassign
+        the_word.nosplit = assignment_acceptable(@last_read_token) or @pst_compassign
       else
         the_word.assignment = false
         the_word.nosplit = false
       end
 
-      if command_token_position(last_read_token) then
+      if command_token_position(@last_read_token) then
         b = builtin_address_internal(token, 0)
         if b.assignment_builtin then
           @pst_assignok = true
@@ -577,9 +636,9 @@ class Tokenizer
         end
       end
 
-      result = (the_word.w_assignment && the_word.nosplit) ? ASSIGNMENT_WORD : WORD
+      result = (the_word.assignment && the_word.nosplit) ? ASSIGNMENT_WORD : WORD
 
-      case last_read_token
+      case @last_read_token
       when FUNCTION
         @pst_allowopnbrc = true
         function_dstart = line_number
@@ -762,7 +821,7 @@ class Tokenizer
       # @pst_comassign, we need to parse [sub]=words treating `sub' as
       # if it were enclosed in double quotes.
       elsif mbtest(character == ?[ &&
-                   ((token.length > 0 && assignment_acceptable(last_read_token) && token_is_ident(token)) or
+                   ((token.length > 0 && assignment_acceptable(@last_read_token) && token_is_ident(token)) or
                     (token == 0 && @pst_compassign))) then
         debug_log('possible array subscript assignment')
         ttok = parse_matched_pair(cd, ?[, ?], P_ARRAYSUB)
@@ -771,7 +830,7 @@ class Tokenizer
         all_digit_token = false
 
         # Identify possible compound array variable assignment.
-      elsif mbtest(character == ?= && token.length() > 0 && (assignment_acceptable(last_read_token) || @pst_assignok) && token_is_assignment(token, token_ident)) then
+      elsif mbtest(character == ?= && token.length() > 0 && (assignment_acceptable(@last_read_token) || @pst_assignok) && token_is_assignment(token, token_ident)) then
         peek_char = shell_getc(1)
         if mbtest(peek_char == ?() then
           ttok = parse_compound_assignment()
