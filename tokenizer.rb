@@ -572,6 +572,7 @@ class Tokenizer
       # If the delimiter character is not single quote, parse some of
       # the shell expansions that must be read as a single word.
       if shellexp(character) then
+        debug_log("shellexp")
         peek_char = shell_getc(1)
         # $(...), <(...), >(...), $((...)), ${...}, and $[...]
         # constructs
@@ -644,6 +645,7 @@ class Tokenizer
       elsif mbtest(character == ?[ &&
                    ((token_index > 0 && assignment_acceptable(last_read_token) && token_is_ident(token, token_index)) or
                     (token == 0 && @pst_compassign))) then
+        debug_log('possible array subscript assignment')
         ttok = parse_matched_pair(cd, ?[, ?], P_ARRAYSUB)
         token << character.chr
         token << ttok
@@ -672,6 +674,9 @@ class Tokenizer
         end
       end
 
+      got_character.call()
+
+      debug_log("end of loop")
     end
   end
 end
