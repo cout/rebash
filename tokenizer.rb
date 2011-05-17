@@ -56,6 +56,14 @@ class Tokenizer
     return SH_SYNTAXTAB[c].cblank
   end
 
+  def shellquote(c)
+    return SH_SYNTAXTAB[c].cquote
+  end
+
+  def shellexp(c)
+    return c == ?$ || c == ?< || c == ?>
+  end
+
   def initialize(s)
     @s = s
     @a = s.bytes.to_a
@@ -86,6 +94,12 @@ class Tokenizer
     @function_dstart = nil
 
     @dstack = DStack.new
+
+    # TODO:
+    # if @pst_extpat then
+    #   @extended_glob = global_extglob
+    # end
+    @extended_glob = false
   end
 
   def shell_getc(remove_quoted_newline)
@@ -537,7 +551,7 @@ class Tokenizer
       end
 
       # Parse a ksh-style extended pattern matching specification.
-      if mbtest(extended_glob && PATTERN_CHAR(character)) then
+      if mbtest(@extended_glob && PATTERN_CHAR(character)) then
         debug_log("extended glob")
         peek_char = shell_getc(1)
         if mbtest(peek_char == ?() then
