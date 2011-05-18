@@ -138,6 +138,9 @@ class Tokenizer
   end
 
   def initialize(s)
+    @interactive = true # TODO
+    @interactive_comments = true # TODO
+
     @s = s
     @a = s.bytes.to_a
     @a.reverse!
@@ -237,9 +240,12 @@ class Tokenizer
 
       if character == ?# && (not @interactive or @interactive_comments) then
         # A comment.  Discard until EOL or EOF, and then return a newline.
-        discard_until(?\n)
-        shell_getc(0)
-        character = ?\n # this will take the next statement and return.
+        comment = ''
+        while (character = shell_getc(1)) and character != ?\n and character != EOF do
+          comment << character.chr
+        end
+        shell_ungetc(character)
+        return CommentToken.new(comment)
       end
 
       if character == ?\n then

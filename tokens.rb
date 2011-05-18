@@ -105,6 +105,20 @@ class NumberToken < Token
   end
 end
 
+class CommentToken < Token
+  attr_reader :comment
+
+  def initialize(comment)
+    super("COMMENT", "##{comment}")
+    @comment = comment
+  end
+
+  def ==(rhs)
+    return false if not rhs.is_a?(CommentToken)
+    return self.comment == rhs.comment
+  end
+end
+
 # Tokens
 ARITH_FOR_EXPRS = Token.new("ARITH_FOR_EXPRS", "???")
 SEMI_SEMI = Token.new("SEMI_SEMI", ";;")

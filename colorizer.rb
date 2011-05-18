@@ -37,7 +37,13 @@ end
 
 class NumberWord < Token
   def colorize
-    return Term::ANSIColor.red { self.number }
+    return Term::ANSIColor.red { self.to_s }
+  end
+end
+
+class CommentToken < Token
+  def colorize
+    return Term::ANSIColor.blue { self.to_s }
   end
 end
 
