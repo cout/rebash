@@ -300,6 +300,10 @@ class Tokenizer
     return SH_SYNTAXTAB[c].cquote
   end
 
+  def shellbreak(c)
+    return SH_SYNTAXTAB[c].cshbrk
+  end
+
   def shellexp(c)
     return c == ?$ || c == ?< || c == ?>
   end
@@ -932,13 +936,13 @@ class Tokenizer
         else
           shell_ungetc(peek_char)
         end
+      end
 
-        # When not parsing a multi-character word construct, shell
-        # meta-characters break words.
-        if mbtest(shellbreak(character)) then
-          shell_ungetc(character)
-          return got_token()
-        end
+      # When not parsing a multi-character word construct, shell
+      # meta-characters break words.
+      if mbtest(shellbreak(character)) then
+        shell_ungetc(character)
+        return got_token.call()
       end
 
       got_character.call()
