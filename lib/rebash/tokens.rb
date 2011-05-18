@@ -18,6 +18,11 @@ class WhitespaceToken < Token
     super("WHITESPACE", space)
     @space = space
   end
+
+  def ==(rhs)
+    return false if not rhs.is_a?(WhitespaceToken)
+    return self.space == rhs.space
+  end
 end
 
 WORD = Object.new
