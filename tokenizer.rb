@@ -195,7 +195,6 @@ class Tokenizer
 
   def shell_getc(remove_quoted_newline)
     c = @a.pop
-    debug_log("getc returning #{c ? c.chr : 'nil'}")
     return c 
   end
 
@@ -211,17 +210,12 @@ class Tokenizer
     return a
   end
 
-  def debug_log(s)
-    puts s
-  end
-
   def current_delimiter(ds)
     return ds.delimiter_depth ? ds.delimiters[ds.delimiter_depth - 1] : 0
   end
 
   def read_token
     if @token_to_read then
-      debug_log "have @token_to_read"
       result = @token_to_read
       if @token_to_read == WORD then
         @token_to_read = nil
@@ -238,7 +232,6 @@ class Tokenizer
     end
 
     if @pst_condcmd and not @pst_condexpr then
-      debug_log "@pst_condcmd and not @pst_condexpr"
       @cond_lineno = @line_number
       @pst_condexpr = true
       command = parse_cond_command()
@@ -252,23 +245,14 @@ class Tokenizer
     end
 
     while true do
-      debug_log("at top of loop")
-
-      # Read a single word from input.
-      # while (character = shell_getc(1)) != EOF and shellblank(character) do
-      # end
-
       character = shell_getc(1)
       return EOF if character == EOF
-
-      debug_log("got character '#{character.chr}'")
 
       if mbtest(shellblank(character)) then
         return WhitespaceToken.new(character.chr)
       end
 
       if mbtest(character == ?# && (not @interactive or @interactive_comments)) then
-        debug_log("comment")
         # A comment.  Discard until EOL or EOF, and then return a newline.
         discard_until(?\n)
         shell_getc(0)
@@ -276,10 +260,7 @@ class Tokenizer
       end
 
       if character == ?\n then
-        debug_log("newline")
-        if @need_here_doc then
-          gather_here_documents()
-        end
+        gather_here_documents() if @need_here_doc
 
         @pst_alexpnext = false
         @pst_assignok = false
@@ -298,7 +279,6 @@ class Tokenizer
 
       # Shell meta-characters
       if mbtest(shellmeta(character) && !@pst_dblparen) then
-        debug_log("shellmeta and not @pst_dblparen")
         # Turn off alias tokenization iff this character sequence would
         # not leave us ready to read a command.
         if character == ?< or character == ?> then
@@ -308,7 +288,6 @@ class Tokenizer
         @pst_assignok = false
 
         peek_char = shell_getc(1)
-        debug_log("peek_char is #{peek_char ? peek_char.chr : peek_char.inspect}")
         if character == peek_char then
           case character
           when ?<
@@ -354,23 +333,18 @@ class Tokenizer
           end
 
         elsif mbtest(character == ?< && peek_char == ?&) then
-          debug_log("less_and")
           return LESS_AND
 
         elsif mbtest(character == ?> && peek_char == ?&) then
-          debug_log("greater_and")
           return GREATER_AND
 
         elsif mbtest(character == ?< && peek_char == ?>) then
-          debug_log("less_greater")
           return LESS_GREATER
 
         elsif mbtest(character == ?> && peek_char == ?|) then
-          debug_log("greater_bar")
           return GREATER_BAR
 
         elsif mbtest(character == ?& && peek_char == ?>) then
-          debug_log("and_greater")
           peek_char = shell_getc(1)
           if mbtest(peek_char == ?>)
             return AND_GREATER_GREATER
@@ -380,25 +354,21 @@ class Tokenizer
           end
 
         elsif mbtest(character == ?| && peek_char == ?&) then
-          debug_log("bar_and")
           return BAR_AND
 
         elsif mbtest(character == ?; && peek_char == ?&) then
-          debug_log("semi_and")
           @pst_casepat = true
           @pst_alexpnext = false
           return SEMI_AND
 
         end
 
-        debug_log("returning peek char")
         shell_ungetc(peek_char)
 
         # If we look like we are reading the start of a function definition,
         # then let the reader know about it so that we will do the right
         # thing with '{'.
         if mbtest(character == ')' && last_read_token == '(' && token_before_that == WORD) then
-          debug_log("close paren on word")
           @pst_allowopnbrc = true
           @pst_alexpnext = false
           @function_dstart = line_number
@@ -408,20 +378,16 @@ class Tokenizer
         # we're not trying to parse a case pattern list, the left paren
         # indicates a subshell.
         if mbtest(character == ?( && !@pst_casepat) then
-          debug_log("open paren and not @pst_casepat")
           @pst_subshell = true
         elsif mbtest(@pst_casepat && character == ?)) then
-          debug_log("@pst_casepat and close paren")
           @pst_casepat = false
         elsif mbtest(@pst_subshell && character == ?)) then
-          debug_log("@pst_subshell and close paren")
           @pst_subshell = false
         end
 
         # Check for the constructs which introduce process substitution.
         # Shells running in `posix mode' don't do process substitution.
         if mbtest(@posixly_correct || ((character != ?> && character != ?<) || peek_char != '(')) then
-          debug_log("posixly_correct or (not > and not <) or '('")
           return character
         end
 
@@ -434,11 +400,9 @@ class Tokenizer
       # Okay, if we got this far, we have to read a word.  Read one, and
       # then check it against the known ones.
       result = read_token_word(character)
-      debug_log("read_token_word returned #{result}")
       if result != RE_READ_TOKEN then
         return result
       else
-        debug_log("re-reading")
         next
       end
     end
@@ -460,8 +424,6 @@ class Tokenizer
   end
 
   def read_token_word(character)
-    debug_log("read_token_word")
-
     dollar_present = false # becomes true if we see a `$'
     quoted = false         # becomes true if we see one of ("), ('), (`), or (\)
     pass_next_character = false # true means to ignore the value of the next character and just to add it no matter what
@@ -596,8 +558,6 @@ class Tokenizer
     }
 
     while true do
-      debug_log("at top of read token word loop")
-
       if character == EOF then
         return got_token.call()
       end
@@ -613,7 +573,6 @@ class Tokenizer
       # Handle backslashes.  Quote lots of things when not inside of
       # double-quotes, quote some things inside of double-quotes.
       if mbtest(character == ?\\) then
-        debug_log("backslash")
         peek_char = shell_getc(0)
 
         # Backslash-newline is ignored in all cases except when quoted
@@ -638,7 +597,6 @@ class Tokenizer
 
       # Parse a matched pair of quote characters.
       if mbtest(shellquote(character)) then
-        debug_log("shellquote")
         push_delimiter(@dstack, character)
         ttok = parse_matched_pair(character, character, character, (character == ?`) ? P_COMMAND : 0)
         token << character.chr
@@ -655,7 +613,6 @@ class Tokenizer
       # the shell and regular expressions.  Right now, that is only
       # '(' and '|'.
       if mbtest(@pst_regexp && (character == ?( || character == ?|)) then
-        debug_log("regexp")
         if character == ?| then
           got_character.call()
           next
@@ -673,7 +630,6 @@ class Tokenizer
 
       # Parse a ksh-style extended pattern matching specification.
       if mbtest(@extended_glob && PATTERN_CHAR(character)) then
-        debug_log("extended glob")
         peek_char = shell_getc(1)
         if mbtest(peek_char == ?() then
           push_delimiter(@dstack, peek_char)
@@ -693,7 +649,6 @@ class Tokenizer
       # If the delimiter character is not single quote, parse some of
       # the shell expansions that must be read as a single word.
       if shellexp(character) then
-        debug_log("shellexp")
         peek_char = shell_getc(1)
         # $(...), <(...), >(...), $((...)), ${...}, and $[...]
         # constructs
@@ -766,7 +721,6 @@ class Tokenizer
       elsif mbtest(character == ?[ &&
                    ((token.length > 0 && assignment_acceptable(@last_read_token) && token_is_ident(token)) or
                     (token == 0 && @pst_compassign))) then
-        debug_log('possible array subscript assignment')
         ttok = parse_matched_pair(cd, ?[, ?], P_ARRAYSUB)
         token << character.chr
         token << ttok
@@ -795,8 +749,6 @@ class Tokenizer
       end
 
       got_character.call()
-
-      debug_log("end of loop")
     end
 
     got_token.call()
