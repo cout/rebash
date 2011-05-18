@@ -41,6 +41,13 @@ class NumberWord < Token
   end
 end
 
+# TODO: perhaps we should return Fixnums as tokens?
+class Fixnum
+  def colorize
+    return self.chr
+  end
+end
+
 class Colorizer
   def initialize(s)
     @tokenizer = Tokenizer.new(s)
