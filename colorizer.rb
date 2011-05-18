@@ -1,4 +1,5 @@
 require 'tokenizer'
+require 'term/ansicolor'
 
 class Token
   def colorize
