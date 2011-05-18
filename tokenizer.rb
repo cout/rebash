@@ -25,7 +25,7 @@ class Tokenizer
   # Return true if TOKSYM is a token that after being read would allow a
   # reserved word to be seen, else 0.
   def reserved_word_acceptable(toksym)
-    if [ ?\n, ?;, ?(, ?), ?|, ?&, ?{, ?}, AND_AND, BANG, BAR_AND, DO, DONE, ELIF, ELSE, ESAC, FI, IF, OR_OR, SEMI_SEMI, SEMI_AND, SEMI_SEMI_AND, THEN, TIME, TIMEOPT, COPROC, UNTIL, WHILE, ?\000 ].include?(toksym) then
+    if [ ?\n, ?;, ?(, ?), ?|, ?&, ?{, ?}, AND_AND, BANG, BAR_AND, DO, DONE, ELIF, ELSE, ESAC, FI, IF, OR_OR, SEMI_SEMI, SEMI_AND, SEMI_SEMI_AND, THEN, COPROC, UNTIL, WHILE, ?\000 ].include?(toksym) then
       return true
     else
       if @last_read_token == WORD && @token_before_that == COPROC then
@@ -58,13 +58,8 @@ class Tokenizer
   #
   #   `}' is recognized if there is an unclosed '{' present.
   #
-  #   `-p' is recognized as TIMEOPT if the last read token was TIME.
-  #
   #   ']]' is returned as COND_END if the parser is currently parsing a
   #   conditional expression ((parser_state & PST_CONDEXPR) != 0)
-  #
-  #   `time' is returned as TIME if and only if it is immediately
-  #   preceded by one of `:', `\n', `||', `&&', or `&'.
   def special_case_tokens(tokstr)
     if (@last_read_token == WORD) &&
        (@token_before_that == FOR || @token_before_that == CASE || @token_before_that == SELECT) &&
@@ -118,11 +113,6 @@ class Tokenizer
 
     if @open_brace_count > 0 && reserved_word_acceptable(@last_read_token) && tokstr == '}' then
       @open_brace_count -= 1
-    end
-
-    # Handle -p after `time'.
-    if @last_read_token == TIME && tokstr == '-[' then
-      return TIMEOPT
     end
 
     if @pst_condexpr && tokstr == ']]' then

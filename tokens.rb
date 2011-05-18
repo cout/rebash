@@ -107,7 +107,6 @@ end
 
 # Tokens
 ARITH_FOR_EXPRS = Token.new("ARITH_FOR_EXPRS", "???")
-TIME = Token.new("TIME", "time")
 SEMI_SEMI = Token.new("SEMI_SEMI", ";;")
 SEMI_AND = Token.new("SEMI_AND", ";&")
 SEMI_SEMI_AND = Token.new("SEMI_SEMI_AND", ";;&")
@@ -123,7 +122,6 @@ FI = Token.new("FI", "fi")
 IF = Token.new("IF", "if")
 OR_OR = Token.new("OR_OR", "||")
 THEN = Token.new("THEN", "then")
-TIMEOPT = Token.new("TIMEOPT", "-p")
 COPROC = Token.new("COPROC", "coproc")
 UNTIL = Token.new("UNTIL", "until")
 WHILE = Token.new("WHILE", "while")
