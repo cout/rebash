@@ -11,17 +11,6 @@ class Tokenizer
 
   DStack = Struct.new(:delimiters, :delimiter_depth, :delimeter_space)
 
-  def mbtest(expr)
-    # TODO: return expr && (@shell_input_line_index > 1) ? shell_input_line_property[shell_input_line_index - 1] : 1
-    return expr
-  end
-
-  def last_shell_getc_is_singlebyte
-    # TODO: return shell_input_line_index > 1 ?
-    # shell_input_line_property[shell_input_line_index - 1] : 1
-    return true
-  end
-
   # Return true if TOKSYM is a token that after being read would allow a
   # reserved word to be seen, else 0.
   def reserved_word_acceptable(toksym)
@@ -238,11 +227,11 @@ class Tokenizer
       character = shell_getc(1)
       return EOF if character == EOF
 
-      if mbtest(shellblank(character)) then
+      if shellblank(character) then
         return WhitespaceToken.new(character.chr)
       end
 
-      if mbtest(character == ?# && (not @interactive or @interactive_comments)) then
+      if character == ?# && (not @interactive or @interactive_comments) then
         # A comment.  Discard until EOL or EOF, and then return a newline.
         discard_until(?\n)
         shell_getc(0)
@@ -268,7 +257,7 @@ class Tokenizer
       end
 
       # Shell meta-characters
-      if mbtest(shellmeta(character) && !@pst_dblparen) then
+      if shellmeta(character) && !@pst_dblparen then
         # Turn off alias tokenization iff this character sequence would
         # not leave us ready to read a command.
         if character == ?< or character == ?> then
@@ -284,9 +273,9 @@ class Tokenizer
             # If '<' then we could be at '<<' or at '<<-'.  We have to
             # look ahead one more character.
             peek_char = shell_getc(1)
-            if mbtest(peek_char == '-') then
+            if peek_char == '-' then
               return LESS_LESS_MINUS
-            elsif mbtest(peek_char == '<') then
+            elsif peek_char == '<' then
               return LESS_LESS_LESS
             else
               shell_ungetc(peek_char)
@@ -301,7 +290,7 @@ class Tokenizer
             @pst_alexpnext = false
 
             peek_char = shell_getc(1)
-            if mbtest(peek_char == '&') then
+            if peek_char == '&' then
               return SEMI_SEMI_AND
             else
               shell_ungetc(peek_char)
@@ -322,31 +311,31 @@ class Tokenizer
 
           end
 
-        elsif mbtest(character == ?< && peek_char == ?&) then
+        elsif character == ?< && peek_char == ?& then
           return LESS_AND
 
-        elsif mbtest(character == ?> && peek_char == ?&) then
+        elsif character == ?> && peek_char == ?& then
           return GREATER_AND
 
-        elsif mbtest(character == ?< && peek_char == ?>) then
+        elsif character == ?< && peek_char == ?> then
           return LESS_GREATER
 
-        elsif mbtest(character == ?> && peek_char == ?|) then
+        elsif character == ?> && peek_char == ?| then
           return GREATER_BAR
 
-        elsif mbtest(character == ?& && peek_char == ?>) then
+        elsif character == ?& && peek_char == ?> then
           peek_char = shell_getc(1)
-          if mbtest(peek_char == ?>)
+          if peek_char == ?>
             return AND_GREATER_GREATER
           else
             shell_ungetc(peek_char)
             return AND_GREATER
           end
 
-        elsif mbtest(character == ?| && peek_char == ?&) then
+        elsif character == ?| && peek_char == ?& then
           return BAR_AND
 
-        elsif mbtest(character == ?; && peek_char == ?&) then
+        elsif character == ?; && peek_char == ?& then
           @pst_casepat = true
           @pst_alexpnext = false
           return SEMI_AND
@@ -358,7 +347,7 @@ class Tokenizer
         # If we look like we are reading the start of a function definition,
         # then let the reader know about it so that we will do the right
         # thing with '{'.
-        if mbtest(character == ')' && last_read_token == '(' && token_before_that == WORD) then
+        if character == ')' && last_read_token == '(' && token_before_that == WORD then
           @pst_allowopnbrc = true
           @pst_alexpnext = false
           @function_dstart = line_number
@@ -367,22 +356,22 @@ class Tokenizer
         # case pattern lists may be preceded by an optional left paren.  If
         # we're not trying to parse a case pattern list, the left paren
         # indicates a subshell.
-        if mbtest(character == ?( && !@pst_casepat) then
+        if character == ?( && !@pst_casepat then
           @pst_subshell = true
-        elsif mbtest(@pst_casepat && character == ?)) then
+        elsif @pst_casepat && character == ?) then
           @pst_casepat = false
-        elsif mbtest(@pst_subshell && character == ?)) then
+        elsif @pst_subshell && character == ?) then
           @pst_subshell = false
         end
 
         # Check for the constructs which introduce process substitution.
         # Shells running in `posix mode' don't do process substitution.
-        if mbtest(@posixly_correct || ((character != ?> && character != ?<) || peek_char != '(')) then
+        if @posixly_correct || ((character != ?> && character != ?<) || peek_char != '(') then
           return character
         end
 
         # Hack <&- (close stdin) case.  Also <&N- (dup and close).
-        if mbtest(character == '-' && (last_read_token == LESS_AND || last_read_token == GREATER_AND)) then
+        if character == '-' && (last_read_token == LESS_AND || last_read_token == GREATER_AND) then
           return character
         end
       end
@@ -457,21 +446,21 @@ class Tokenizer
       # this token is a '>' or '<', then and ONLY then, is this input
       # token a NUMBER.  Otherwise, it is just a word, and should be
       # returned as such.
-      if mbtest(all_digit_token && (character == ?< || character == ?> ||
+      if all_digit_token && (character == ?< || character == ?> ||
                                      last_read_token == LESS_AND || 
-                                     last_read_token == GREATER_AND)) then
+                                     last_read_token == GREATER_AND) then
         number = parse_number(token)
         return Number.new(number)
       end
 
       # Check for special case tokens.
-      result = last_shell_getc_is_singlebyte ? special_case_tokens(token) : nil
+      result = special_case_tokens(token)
       return result if result
 
       # Posix.2 does not allow reserved words to be aliased, so check
       # for all of them including special cases, before expanding the
       # current token as an alias.
-      if mbtest(@posixly_correct) then
+      if @posixly_correct then
         check_for_reserved_word(token)
       end
 
@@ -488,7 +477,7 @@ class Tokenizer
 
       # If not in Posix.2 mode, check for reserved words after alias
       # expansion.
-      if mbtest(@posixly_correct == 0) then
+      if not @posixly_correct then
         check_for_reserved_word(token)
       end
 
@@ -562,7 +551,7 @@ class Tokenizer
 
       # Handle backslashes.  Quote lots of things when not inside of
       # double-quotes, quote some things inside of double-quotes.
-      if mbtest(character == ?\\) then
+      if character == ?\\ then
         peek_char = shell_getc(0)
 
         # Backslash-newline is ignored in all cases except when quoted
@@ -586,7 +575,7 @@ class Tokenizer
       end
 
       # Parse a matched pair of quote characters.
-      if mbtest(shellquote(character)) then
+      if shellquote(character) then
         push_delimiter(@dstack, character)
         ttok = parse_matched_pair(character, character, character, (character == ?`) ? P_COMMAND : 0)
         token << character.chr
@@ -602,7 +591,7 @@ class Tokenizer
       # command, we need to special-case characters special to both
       # the shell and regular expressions.  Right now, that is only
       # '(' and '|'.
-      if mbtest(@pst_regexp && (character == ?( || character == ?|)) then
+      if @pst_regexp && (character == ?( || character == ?|) then
         if character == ?| then
           got_character.call()
           next
@@ -619,9 +608,9 @@ class Tokenizer
       end
 
       # Parse a ksh-style extended pattern matching specification.
-      if mbtest(@extended_glob && PATTERN_CHAR(character)) then
+      if @extended_glob && PATTERN_CHAR(character) then
         peek_char = shell_getc(1)
-        if mbtest(peek_char == ?() then
+        if peek_char == ?( then
           push_delimiter(@dstack, peek_char)
           ttok = parse_matched_pair(cd, ?(, ?), 0)
           pop_delimiter(@dstack)
@@ -642,8 +631,8 @@ class Tokenizer
         peek_char = shell_getc(1)
         # $(...), <(...), >(...), $((...)), ${...}, and $[...]
         # constructs
-        if mbtest(peek_char == ?( ||
-                  ((peek_char == ?{ || peek_char == ?[) && character == ?$)) then
+        if peek_char == ?( ||
+                  ((peek_char == ?{ || peek_char == ?[) && character == ?$) then
           if peek_char == ?{ then
             ttok = parse_matched_pair(cd, ?{, ?}, P_FIRSTCLOSE)
           elsif peek_char == ?( then
@@ -668,7 +657,7 @@ class Tokenizer
           next
 
         # This handles $'...' and $"..." new-style quoted strings.
-        elsif mbtest(character == ?$ && (peek_char == ?' || peek_char == ?")) then
+        elsif character == ?$ && (peek_char == ?' || peek_char == ?") then
           first_line = line_number
           push_delimiter(@dstack, peek_char)
           ttok = parse_matched_pair(peek_char, peek_char, peek_char, (peek_char == ?') ? P_ALLOWESC : 0)
@@ -695,7 +684,7 @@ class Tokenizer
         # This could eventually be extended to recognize all of the
         # shell's single-character parameter expansions, and set
         # flags.
-        elsif mbtest(character == ?$ && peek_char == ?$) then
+        elsif character == ?$ && peek_char == ?$ then
           token << ttok
           dollar_present = true
           all_digit_token = false
@@ -708,18 +697,18 @@ class Tokenizer
       # Identify possible array subscript assignment; match [...]. If
       # @pst_comassign, we need to parse [sub]=words treating `sub' as
       # if it were enclosed in double quotes.
-      elsif mbtest(character == ?[ &&
+      elsif character == ?[ &&
                    ((token.length > 0 && assignment_acceptable(@last_read_token) && token_is_ident(token)) or
-                    (token == 0 && @pst_compassign))) then
+                    (token == 0 && @pst_compassign)) then
         ttok = parse_matched_pair(cd, ?[, ?], P_ARRAYSUB)
         token << character.chr
         token << ttok
         all_digit_token = false
 
         # Identify possible compound array variable assignment.
-      elsif mbtest(character == ?= && token.length() > 0 && (assignment_acceptable(@last_read_token) || @pst_assignok) && token_is_assignment(token, token_ident)) then
+      elsif character == ?= && token.length() > 0 && (assignment_acceptable(@last_read_token) || @pst_assignok) && token_is_assignment(token, token_ident) then
         peek_char = shell_getc(1)
-        if mbtest(peek_char == ?() then
+        if peek_char == ?( then
           ttok = parse_compound_assignment()
           token << "=(#{ttok})"
           all_digit_token = false
@@ -733,7 +722,7 @@ class Tokenizer
 
       # When not parsing a multi-character word construct, shell
       # meta-characters break words.
-      if mbtest(shellbreak(character)) then
+      if shellbreak(character) then
         shell_ungetc(character)
         return got_token.call()
       end
