@@ -23,7 +23,7 @@ void rebash_display(void)
 
   if (state == 6)
   {
-    VALUE str = rb_any_to_s(ruby_errinfo);
+    VALUE str = rb_funcall(ruby_errinfo, rb_intern("to_s"), 0);
     char * p = StringValueCStr(str);
     FILE * fp = rl_outstream ? rl_outstream : stdout;
     fprintf(fp, "\r%s\n%s%s", p, rl_display_prompt, rl_line_buffer);
