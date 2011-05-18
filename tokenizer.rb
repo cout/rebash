@@ -262,115 +262,8 @@ class Tokenizer
 
       # Shell meta-characters
       if shellmeta(character) && !@pst_dblparen then
-        # Turn off alias tokenization iff this character sequence would
-        # not leave us ready to read a command.
-        if character == ?< or character == ?> then
-          @pst_alexpnext = false
-        end
-
-        @pst_assignok = false
-
-        peek_char = shell_getc(1)
-        if character == peek_char then
-          case character
-          when ?<
-            # If '<' then we could be at '<<' or at '<<-'.  We have to
-            # look ahead one more character.
-            peek_char = shell_getc(1)
-            case peek_char
-            when ?- then return LESS_LESS_MINUS
-            when ?< then return LESS_LESS_LESS
-            else; shell_ungetc(peek_char); return LESS_LESS
-            end
-
-          when ?>
-            return GREATER_GREATER
-
-          when ?;
-            @pst_casepat = true
-            @pst_alexpnext = false
-
-            peek_char = shell_getc(1)
-            case peek_char
-            when ?& then return SEMI_SEMI_AND
-            else; return SEMI_SEMI
-            end
-
-          when ?&
-            return AND_AND
-
-          when ?|
-            return OR_OR
-
-          when ?(
-            result = parse_dparen(character)
-            if result != -2 then
-              return result
-            end
-
-          end
-
-        elsif character == ?< && peek_char == ?& then
-          return LESS_AND
-
-        elsif character == ?> && peek_char == ?& then
-          return GREATER_AND
-
-        elsif character == ?< && peek_char == ?> then
-          return LESS_GREATER
-
-        elsif character == ?> && peek_char == ?| then
-          return GREATER_BAR
-
-        elsif character == ?& && peek_char == ?> then
-          peek_char = shell_getc(1)
-          case peek_char
-          when ?> then return AND_GREATER_GREATER
-          else; shell_ungetc(peek_char); return AND_GREATER
-          end
-
-        elsif character == ?| && peek_char == ?& then
-          return BAR_AND
-
-        elsif character == ?; && peek_char == ?& then
-          @pst_casepat = true
-          @pst_alexpnext = false
-          return SEMI_AND
-
-        end
-
-        shell_ungetc(peek_char)
-
-        # If we look like we are reading the start of a function definition,
-        # then let the reader know about it so that we will do the right
-        # thing with '{'.
-        if character == ')' && last_read_token == '(' && token_before_that == WORD then
-          @pst_allowopnbrc = true
-          @pst_alexpnext = false
-          @function_dstart = line_number
-        end
-
-        # case pattern lists may be preceded by an optional left paren.  If
-        # we're not trying to parse a case pattern list, the left paren
-        # indicates a subshell.
-        if character == ?( && !@pst_casepat then
-          @pst_subshell = true
-        elsif @pst_casepat && character == ?) then
-          @pst_casepat = false
-        elsif @pst_subshell && character == ?) then
-          @pst_subshell = false
-        end
-
-        # Check for the constructs which introduce process substitution.
-        # Shells running in `posix mode' don't do process substitution.
-        if @posixly_correct || ((character != ?> && character != ?<) || peek_char != '(') then
-          return character
-        end
-
-        # Hack <&- (close stdin) case.  Also <&N- (dup and close).
-        if character == '-' && (last_read_token == LESS_AND || last_read_token == GREATER_AND) then
-          return character
-        end
+        result = read_shellmeta(character)
+        return result if result
       end
 
       # Okay, if we got this far, we have to read a word.  Read one, and
@@ -701,6 +594,120 @@ class Tokenizer
     end
 
     got_token.call()
+  end
+
+  def read_shellmeta(character)
+    # Turn off alias tokenization iff this character sequence would
+    # not leave us ready to read a command.
+    if character == ?< or character == ?> then
+      @pst_alexpnext = false
+    end
+
+    @pst_assignok = false
+
+    peek_char = shell_getc(1)
+    if character == peek_char then
+      case character
+      when ?<
+        # If '<' then we could be at '<<' or at '<<-'.  We have to
+        # look ahead one more character.
+        peek_char = shell_getc(1)
+        case peek_char
+        when ?- then return LESS_LESS_MINUS
+        when ?< then return LESS_LESS_LESS
+        else; shell_ungetc(peek_char); return LESS_LESS
+        end
+
+      when ?>
+        return GREATER_GREATER
+
+      when ?;
+        @pst_casepat = true
+        @pst_alexpnext = false
+
+        peek_char = shell_getc(1)
+        case peek_char
+        when ?& then return SEMI_SEMI_AND
+        else; return SEMI_SEMI
+        end
+
+      when ?&
+        return AND_AND
+
+      when ?|
+        return OR_OR
+
+      when ?(
+        result = parse_dparen(character)
+        if result != -2 then
+          return result
+        end
+
+      end
+
+    elsif character == ?< && peek_char == ?& then
+      return LESS_AND
+
+    elsif character == ?> && peek_char == ?& then
+      return GREATER_AND
+
+    elsif character == ?< && peek_char == ?> then
+      return LESS_GREATER
+
+    elsif character == ?> && peek_char == ?| then
+      return GREATER_BAR
+
+    elsif character == ?& && peek_char == ?> then
+      peek_char = shell_getc(1)
+      case peek_char
+      when ?> then return AND_GREATER_GREATER
+      else; shell_ungetc(peek_char); return AND_GREATER
+      end
+
+    elsif character == ?| && peek_char == ?& then
+      return BAR_AND
+
+    elsif character == ?; && peek_char == ?& then
+      @pst_casepat = true
+      @pst_alexpnext = false
+      return SEMI_AND
+
+    end
+
+    shell_ungetc(peek_char)
+
+    # If we look like we are reading the start of a function definition,
+    # then let the reader know about it so that we will do the right
+    # thing with '{'.
+    if character == ')' && last_read_token == '(' && token_before_that == WORD then
+      @pst_allowopnbrc = true
+      @pst_alexpnext = false
+      @function_dstart = line_number
+    end
+
+    # case pattern lists may be preceded by an optional left paren.  If
+    # we're not trying to parse a case pattern list, the left paren
+    # indicates a subshell.
+    if character == ?( && !@pst_casepat then
+      @pst_subshell = true
+    elsif @pst_casepat && character == ?) then
+      @pst_casepat = false
+    elsif @pst_subshell && character == ?) then
+      @pst_subshell = false
+    end
+
+    # Check for the constructs which introduce process substitution.
+    # Shells running in `posix mode' don't do process substitution.
+    if @posixly_correct || ((character != ?> && character != ?<) || peek_char != '(') then
+      return character
+    end
+
+    # Hack <&- (close stdin) case.  Also <&N- (dup and close).
+    if character == '-' && (last_read_token == LESS_AND || last_read_token == GREATER_AND) then
+      return character
+    end
+
+    return nil
   end
 end
 
