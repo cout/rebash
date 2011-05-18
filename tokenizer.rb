@@ -309,7 +309,7 @@ class Tokenizer
     }
 
     got_escaped_character = proc {
-      all_digit_token &&= DIGIT(character)
+      all_digit_token &&= digit(character)
       dollar_present ||= (character == ?$)
 
       token << character.chr
