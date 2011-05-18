@@ -11,8 +11,6 @@ class Tokenizer
   CTLESC = ?\001
   CTLNUL = ?\177
 
-  DStack = Struct.new(:delimiters, :delimiter_depth, :delimeter_space)
-
   # Return true if TOKSYM is a token that after being read would allow a
   # reserved word to be seen, else 0.
   def reserved_word_acceptable(toksym)
@@ -167,7 +165,7 @@ class Tokenizer
 
     @function_dstart = nil
 
-    @dstack = DStack.new
+    @dstack = [ ]
 
     # TODO:
     # if @pst_extpat then
@@ -196,10 +194,6 @@ class Tokenizer
       a.push(token)
     end
     return a
-  end
-
-  def current_delimiter(ds)
-    return ds.delimiter_depth ? ds.delimiters[ds.delimiter_depth - 1] : 0
   end
 
   def read_token
@@ -304,7 +298,7 @@ class Tokenizer
       # We want to remove quoted newlines (that is, a \<newline> pair)
       # unless we are within single quotes or pass_next_character is
       # set (the shell equivalent of literal-next).
-      cd = current_delimiter(@dstack)
+      cd = @dstack[-1]
       character = shell_getc(cd != ?' && !pass_next_character)
     }
 
@@ -416,7 +410,7 @@ class Tokenizer
         next
       end
 
-      cd = current_delimiter(@dstack)
+      cd = @dstack[-1]
 
       # Handle backslashes.  Quote lots of things when not inside of
       # double-quotes, quote some things inside of double-quotes.
@@ -445,7 +439,7 @@ class Tokenizer
 
       # Parse a matched pair of quote characters.
       if shellquote(character) then
-        push_delimiter(@dstack, character)
+        @dstack.push(character)
         ttok = parse_matched_pair(character, character, character, (character == ?`) ? P_COMMAND : 0)
         token << character.chr
         token << ttok
@@ -466,7 +460,7 @@ class Tokenizer
           next
         end
 
-        push_delimiter(@dstack, character)
+        @dstack.push(character)
         ttok = parse_matched_pair(cd, ?(, ?), 0)
         token << character.chr
         token << ttok
@@ -480,9 +474,9 @@ class Tokenizer
       if @extended_glob && PATTERN_CHAR(character) then
         peek_char = shell_getc(1)
         if peek_char == ?( then
-          push_delimiter(@dstack, peek_char)
+          @dstack.push(peek_char)
           ttok = parse_matched_pair(cd, ?(, ?), 0)
-          pop_delimiter(@dstack)
+          @dstack.pop()
           token << character.chr
           token << ttok
           dollar_present = false
@@ -510,9 +504,9 @@ class Tokenizer
             # appearing in the $(...) string get added to the history
             # literally rather than causing a possibly-incorrect `;'
             # to be added.
-            push_delimiter(@dstack, peek_char)
+            @dstack.push(peek_char)
             ttok = parse_comsub(cd, ?(, ?), P_COMMAND)
-            pop_delimiter(@dstack)
+            @dstack.pop()
           else
             ttok = parse_matched_pair(cd, ?[, ?], 0)
           end
@@ -528,9 +522,9 @@ class Tokenizer
         # This handles $'...' and $"..." new-style quoted strings.
         elsif character == ?$ && (peek_char == ?' || peek_char == ?") then
           first_line = line_number
-          push_delimiter(@dstack, peek_char)
+          @dstack.push(peek_char)
           ttok = parse_matched_pair(peek_char, peek_char, peek_char, (peek_char == ?') ? P_ALLOWESC : 0)
-          pop_delimiter(@dstack)
+          @dstack.pop()
           if peek_char == ?' then
             ttrans = ansiexpand(ttok, 0)
             ttok = sh_single_quote(ttrans)
