@@ -1,8 +1,10 @@
 require 'tokens'
 require 'syntab'
+require 'word'
 
 class Tokenizer
-  WordDesc = Struct.new(:word, :hasdollar, :quoted, :compassign, :nosplit, :assignment)
+  attr_reader :pst_compassign
+  attr_reader :last_read_token
 
   EOF = nil
 
@@ -23,6 +25,10 @@ class Tokenizer
         return false
       end
     end
+  end
+
+  def check_for_reserved_word(tok)
+    return false; # TODO
   end
 
   def command_token_position(token)
@@ -214,9 +220,7 @@ class Tokenizer
       @cond_lineno = @line_number
       @pst_condexpr = true
       command = parse_cond_command()
-      if @cond_token != COND_END then
-        cond_error()
-      end
+      cond_error() if @cond_token != COND_END
       @token_to_read = COND_END
       @pst_condexpr = false
       @pst_condcmd = false
@@ -273,13 +277,10 @@ class Tokenizer
             # If '<' then we could be at '<<' or at '<<-'.  We have to
             # look ahead one more character.
             peek_char = shell_getc(1)
-            if peek_char == '-' then
-              return LESS_LESS_MINUS
-            elsif peek_char == '<' then
-              return LESS_LESS_LESS
-            else
-              shell_ungetc(peek_char)
-              return LESS_LESS
+            case peek_char
+            when ?- then return LESS_LESS_MINUS
+            when ?< then return LESS_LESS_LESS
+            else; shell_ungetc(peek_char); return LESS_LESS
             end
 
           when ?>
@@ -290,11 +291,9 @@ class Tokenizer
             @pst_alexpnext = false
 
             peek_char = shell_getc(1)
-            if peek_char == '&' then
-              return SEMI_SEMI_AND
-            else
-              shell_ungetc(peek_char)
-              return SEMI_SEMI
+            case peek_char
+            when ?& then return SEMI_SEMI_AND
+            else; return SEMI_SEMI
             end
 
           when ?&
@@ -325,11 +324,9 @@ class Tokenizer
 
         elsif character == ?& && peek_char == ?> then
           peek_char = shell_getc(1)
-          if peek_char == ?>
-            return AND_GREATER_GREATER
-          else
-            shell_ungetc(peek_char)
-            return AND_GREATER
+          case peek_char
+          when ?> then return AND_GREATER_GREATER
+          else; shell_ungetc(peek_char); return AND_GREATER
           end
 
         elsif character == ?| && peek_char == ?& then
@@ -387,17 +384,6 @@ class Tokenizer
     end
   end
 
-  # Returns non-nil if the string is an assignment statement.  The
-  # returned value is the index of the '=' sign.
-  def assignment(string, flags)
-    # TODO: ARRAY_VARS
-    if string =~ /^\w+=/ then
-      return string.index('=')
-    else
-      return nil
-    end
-  end
-
   def digit(character)
     return [?0, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9].include?(character)
   end
@@ -447,8 +433,8 @@ class Tokenizer
       # token a NUMBER.  Otherwise, it is just a word, and should be
       # returned as such.
       if all_digit_token && (character == ?< || character == ?> ||
-                                     last_read_token == LESS_AND || 
-                                     last_read_token == GREATER_AND) then
+                                     @last_read_token == LESS_AND || 
+                                     @last_read_token == GREATER_AND) then
         number = parse_number(token)
         return Number.new(number)
       end
@@ -468,10 +454,9 @@ class Tokenizer
       # inhibits alias expansion.
       if @expand_aliases and quoted == 0 then
         result = alias_expand_token(token)
-        if result == RE_READ_TOKEN then
-          return RE_READ_TOKEN
-        elsif result == NO_EXPANSION then
-          @pst_alexpnext = false
+        case result
+        when RE_READ_TOKEN then return RE_READ_TOKEN
+        when NO_EXPANSION then @pst_alexpnext = false
         end
       end
 
@@ -481,21 +466,12 @@ class Tokenizer
         check_for_reserved_word(token)
       end
 
-      the_word = WordDesc.new
-      the_word.word = token
-      the_word.hasdollar = dollar_present
-      the_word.quoted = quoted
-      the_word.compassign = (compound_assignment && token[-1] == ?))
-
-      if assignment(token, @pst_compassign) then
-        the_word.assignment = true
-
-        # Don't perform word splitting on assignment statements.
-        the_word.nosplit = assignment_acceptable(@last_read_token) or @pst_compassign
-      else
-        the_word.assignment = false
-        the_word.nosplit = false
-      end
+      the_word = WordDesc.new(
+          self,
+          :token => token,
+          :dollar_present => dollar_present,
+          :quoted => quoted,
+          :compound_assignment => compound_assignment)
 
       if command_token_position(@last_read_token) then
         b = builtin_address_internal(token, 0)
@@ -506,8 +482,6 @@ class Tokenizer
         end
       end
 
-      word = the_word
-
       if token[0] == ?{ and token[-1] == ?} and (character == ?< or character == ?>) then
         # can use token; already copied to the_word
         if legal_identifier(token[1..-1]) then
@@ -516,11 +490,7 @@ class Tokenizer
         end
       end
 
-      if the_word.assignment and the_word.nosplit then
-        result = AssignmentWordToken.new(word)
-      else
-        result = WordToken.new(word)
-      end
+      result = the_word.to_token
 
       case @last_read_token
       when FUNCTION
