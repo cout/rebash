@@ -1,14 +1,98 @@
 class Tokenizer
   class Token
     attr_reader :name
+
     def initialize(name)
       @name = name
     end
   end
 
+  WORD = Object.new
+
+  class WordToken < Token
+    attr_reader :word
+
+    def initialize(word)
+      super("WORD")
+      @word = word
+    end
+
+    def ==(rhs)
+      return true if rhs == WORD
+      return false if not rhs.is_a?(WordToken)
+      return self.word == rhs.word
+    end
+  end
+
+  ASSIGNMENT_WORD = Object.new
+
+  class AssignmentWordToken < Token
+    attr_reader :word
+
+    def initialize(word)
+      super("ASSIGNMENT_WORD")
+      @word = word
+    end
+
+    def ==(rhs)
+      return true if rhs == ASSIGNMENT_WORD
+      return false if not rhs.is_a?(AssignmentWordToken)
+      return self.word == rhs.word
+    end
+  end
+
+  REDIR_WORD = Object.new
+
+  class RedirWordToken < Token
+    attr_reader :word
+
+    def initialize(word)
+      super("WORD")
+      @word = word
+    end
+
+    def ==(rhs)
+      return true if rhs == REDIR_WORD
+      return false if not rhs.is_a?(RedirWordToken)
+      return self.word == rhs.word
+    end
+  end
+
+  COND_CMD = Object.new
+
+  class CondCommandToken < Token
+    attr_reader :command
+
+    def initialize(command)
+      super("COMMAND")
+      @command = command
+    end
+
+    def ==(rhs)
+      return true if rhs == COND_CMD
+      return false if not rhs.is_a?(CondCommandToken)
+      return self.command == rhs.command
+    end
+  end
+
+  NUMBER = Object.new
+
+  class NumberToken < Token
+    attr_reader :number
+
+    def initialize(number)
+      super("NUMBER")
+      @number = number
+    end
+
+    def ==(rhs)
+      return true if rhs == NUMBER
+      return false if not rhs.is_a?(NumberToken)
+      return self.number == rhs.number
+    end
+  end
+
   # Tokens
-  WORD = Token.new("WORD")
-  ASSIGNMENT_WORD = Token.new("ASSIGNMENT_WORD")
   ARITH_FOR_EXPRS = Token.new("ARITH_FOR_EXPRS")
   TIME = Token.new("TIME")
   SEMI_SEMI = Token.new("SEMI_SEMI")
@@ -80,8 +164,6 @@ class Tokenizer
 
   CTLESC = ?\001
   CTLNUL = ?\177
-
-  YYLVAL = Struct.new(:word, :command, :number)
 
   DStack = Struct.new(:delimiters, :delimiter_depth, :delimeter_space)
 
@@ -247,8 +329,6 @@ class Tokenizer
     @pst_compassign = false
     @pst_comassign = false
 
-    @yylval = YYLVAL.new
-
     @function_dstart = nil
 
     @dstack = DStack.new
@@ -295,26 +375,32 @@ class Tokenizer
     if @token_to_read then
       debug_log "have @token_to_read"
       result = @token_to_read
-      if @token_to_read == WORD or @token_to_read == ASSIGNMENT_WORD then
-        @yylval.word = @word_desc_to_read
+      if @token_to_read == WORD then
+        @token_to_read = nil
         @word_desc_to_read = nil
+        return WordToken.new(@word_desc_to_read)
+      elsif @token_to_read == ASSIGNMENT_WORD then
+        @token_to_read = nil
+        @word_desc_to_read = nil
+        return AssignmentWordToken.new(@word_desc_to_read)
+      else
+        @token_to_read = nil
+        return result
       end
-      @token_to_read = nil
-      return result
     end
 
     if @pst_condcmd and not @pst_condexpr then
       debug_log "@pst_condcmd and not @pst_condexpr"
       @cond_lineno = @line_number
       @pst_condexpr = true
-      @yylval.command = parse_cond_command()
+      command = parse_cond_command()
       if @cond_token != COND_END then
         cond_error()
       end
       @token_to_read = COND_END
       @pst_condexpr = false
       @pst_condcmd = false
-      return COND_CMD
+      return CondCommandToken.new(command)
     end
 
     while true do
@@ -569,8 +655,8 @@ class Tokenizer
       if mbtest(all_digit_token && (character == ?< || character == ?> ||
                                      last_read_token == LESS_AND || 
                                      last_read_token == GREATER_AND)) then
-        @yylval.number = parse_number(token)
-        return NUMBER
+        number = parse_number(token)
+        return Number.new(number)
       end
 
       # Check for special case tokens.
@@ -626,17 +712,21 @@ class Tokenizer
         end
       end
 
-      @yylval.word = the_word
+      word = the_word
 
       if token[0] == ?{ and token[-1] == ?} and (character == ?< or character == ?>) then
         # can use token; already copied to the_word
-        if legal_identifier(token+1) then
-          the_word.word = token+1
+        if legal_identifier(token[1..-1]) then
+          the_word.word = token[1..-1]
           return REDIR_WORD
         end
       end
 
-      result = (the_word.assignment && the_word.nosplit) ? ASSIGNMENT_WORD : WORD
+      if the_word.assignment and the_word.nosplit then
+        result = AssignmentWordToken.new(word)
+      else
+        result = WordToken.new(word)
+      end
 
       case @last_read_token
       when FUNCTION
