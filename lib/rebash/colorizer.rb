@@ -1,4 +1,4 @@
-require 'tokenizer'
+require 'rebash/tokenizer'
 require 'term/ansicolor'
 
 class Token

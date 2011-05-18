@@ -6,15 +6,16 @@ bash shell.  This powerful construct allows various parts of bash to be
 redefined or extended.
 
 Currently the only supported extension is syntax highlighting for the
-interactive shell.  To use it, build the extension, then:
+interactive shell.  To use it, build the extension:
 
-    $ RUBYOPT=-rubygems LD_PRELOAD=./
+    $ make -C ext/rebash
 
-(in the future rebash will be shipped as a gem which will do this for
-you)
+then run rebash:
 
-Planned features include modifying existing bash syntax, adding new
-shell builtins, and a new function syntax which is half-bash and
+    $ ./bin/rebash
+
+Planned future features include modifying existing bash syntax, adding
+new shell builtins, and a new function syntax which is half-bash and
 half-ruby.  Of course, each of these features depends on how feasible
 each one turns out to be.
 

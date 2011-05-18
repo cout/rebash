@@ -1,4 +1,4 @@
-require 'colorizer'
+require 'rebash/colorizer'
 
 def format_prompt(prompt)
   return prompt

@@ -32,14 +32,7 @@ void rebash_display(void)
 
 VALUE load_rebash(VALUE arg)
 {
-  char buf[PATH_MAX];
-  VALUE rebash_rb;
-
-  getcwd(buf, sizeof(buf));
-  rebash_rb = rb_str_new2(buf);
-  rb_str_cat2(rebash_rb, "/rebash.rb");
-
-  rb_load(rebash_rb, 0);
+  rb_require("rebash/rebash");
 }
 
 void __attribute__ ((constructor)) rebash_init(void)

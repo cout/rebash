@@ -1,0 +1,8 @@
+#!/bin/bash
+
+DIR=$(readlink -f $(dirname $0))
+export RUBYOPT="${RUBYOPT} -rubygems"
+export LD_PRELOAD="${LD_PRELOAD} ${DIR}/../ext/rebash/rebash.so"
+export RUBYLIB="${RUBYLIB}:${DIR}/../lib"
+exec bash
+

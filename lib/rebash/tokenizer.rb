@@ -1,6 +1,6 @@
-require 'tokens'
-require 'syntab'
-require 'word'
+require 'rebash/tokens'
+require 'rebash/syntab'
+require 'rebash/word'
 
 class Tokenizer
   attr_reader :pst_compassign
