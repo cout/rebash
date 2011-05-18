@@ -2,8 +2,22 @@ class Tokenizer
   class Token
     attr_reader :name
 
-    def initialize(name)
+    def initialize(name, str)
       @name = name
+      @str = str
+    end
+
+    def to_s
+      return @str.to_s
+    end
+  end
+
+  class WhitespaceToken < Token
+    attr_reader :space
+
+    def initialize(space)
+      super("WHITESPACE", space)
+      @space = space
     end
   end
 
@@ -13,7 +27,7 @@ class Tokenizer
     attr_reader :word
 
     def initialize(word)
-      super("WORD")
+      super("WORD", word.word)
       @word = word
     end
 
@@ -30,7 +44,7 @@ class Tokenizer
     attr_reader :word
 
     def initialize(word)
-      super("ASSIGNMENT_WORD")
+      super("ASSIGNMENT_WORD", word.word)
       @word = word
     end
 
@@ -47,7 +61,7 @@ class Tokenizer
     attr_reader :word
 
     def initialize(word)
-      super("WORD")
+      super("WORD", word.word)
       @word = word
     end
 
@@ -64,7 +78,7 @@ class Tokenizer
     attr_reader :command
 
     def initialize(command)
-      super("COMMAND")
+      super("COMMAND", command)
       @command = command
     end
 
@@ -81,7 +95,7 @@ class Tokenizer
     attr_reader :number
 
     def initialize(number)
-      super("NUMBER")
+      super("NUMBER", number)
       @number = number
     end
 
@@ -93,32 +107,32 @@ class Tokenizer
   end
 
   # Tokens
-  ARITH_FOR_EXPRS = Token.new("ARITH_FOR_EXPRS")
-  TIME = Token.new("TIME")
-  SEMI_SEMI = Token.new("SEMI_SEMI")
-  SEMI_AND = Token.new("SEMI_AND")
-  SEMI_SEMI_AND = Token.new("SEMI_SEMI_AND")
-  AND_AND = Token.new("AND_AND")
-  BANG = Token.new("BANG")
-  BAR_AND = Token.new("BAR_AND")
-  DO = Token.new("DO")
-  DONE = Token.new("DONE")
-  ELIF = Token.new("ELIF")
-  ELSE = Token.new("ELSE")
-  ESAC = Token.new("ESAC")
-  FI = Token.new("FI")
-  IF = Token.new("IF")
-  OR_OR = Token.new("OR_OR")
-  THEN = Token.new("THEN")
-  TIMEOPT = Token.new("TIMEOPT")
-  COPROC = Token.new("COPROC")
-  UNTIL = Token.new("UNTIL")
-  WHILE = Token.new("WHILE")
-  FUNCTION = Token.new("FUNCTION")
-  CASE = Token.new("CASE")
-  SELECT = Token.new("SELECT")
-  FOR = Token.new("FOR")
-  RE_READ_TOKEN = Token.new("RE_READ_TOKEN")
+  ARITH_FOR_EXPRS = Token.new("ARITH_FOR_EXPRS", "???")
+  TIME = Token.new("TIME", "time")
+  SEMI_SEMI = Token.new("SEMI_SEMI", ";;")
+  SEMI_AND = Token.new("SEMI_AND", ";&")
+  SEMI_SEMI_AND = Token.new("SEMI_SEMI_AND", ";;&")
+  AND_AND = Token.new("AND_AND", "&&")
+  BANG = Token.new("BANG", "!")
+  BAR_AND = Token.new("BAR_AND", "|&")
+  DO = Token.new("DO", "do")
+  DONE = Token.new("DONE", "done")
+  ELIF = Token.new("ELIF", "elif")
+  ELSE = Token.new("ELSE", "else")
+  ESAC = Token.new("ESAC", "esac")
+  FI = Token.new("FI", "fi")
+  IF = Token.new("IF", "if")
+  OR_OR = Token.new("OR_OR", "||")
+  THEN = Token.new("THEN", "then")
+  TIMEOPT = Token.new("TIMEOPT", "-p")
+  COPROC = Token.new("COPROC", "coproc")
+  UNTIL = Token.new("UNTIL", "until")
+  WHILE = Token.new("WHILE", "while")
+  FUNCTION = Token.new("FUNCTION", "function")
+  CASE = Token.new("CASE", "case")
+  SELECT = Token.new("SELECT", "select")
+  FOR = Token.new("FOR", "for")
+  RE_READ_TOKEN = Token.new("RE_READ_TOKEN", "RE_READ_TOKEN")
 
   WordDesc = Struct.new(:word, :hasdollar, :quoted, :compassign, :nosplit, :assignment)
 
@@ -410,13 +424,18 @@ class Tokenizer
     while true do
       debug_log("at top of loop")
 
-      # Read a single word from input.  Start by skipping blanks.
-      while (character = shell_getc(1)) != EOF and shellblank(character) do
-      end
+      # Read a single word from input.
+      # while (character = shell_getc(1)) != EOF and shellblank(character) do
+      # end
 
+      character = shell_getc(1)
       return EOF if character == EOF
 
       debug_log("got character '#{character.chr}'")
+
+      if mbtest(shellblank(character)) then
+        return WhitespaceToken.new(character.chr)
+      end
 
       if mbtest(character == ?# && (not @interactive or @interactive_comments)) then
         debug_log("comment")
