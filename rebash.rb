@@ -1,9 +1,12 @@
+require 'colorizer'
+
 def format_prompt(prompt)
   return prompt
 end
 
 def format_line(line)
-  return line
+  colorizer = Colorizer.new(line)
+  return colorizer.colorize()
 end
 
 def redisplay(prompt, line)
