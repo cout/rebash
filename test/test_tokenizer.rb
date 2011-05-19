@@ -8,6 +8,11 @@ class TokenizerTest < Test::Unit::TestCase
     return WordToken.new(word)
   end
 
+  def self.aword(str)
+    word = OpenStruct.new(:word => str)
+    return AssignmentWordToken.new(word)
+  end
+
   def self.whitespace(str)
     return WhitespaceToken.new(str)
   end
@@ -20,6 +25,9 @@ class TokenizerTest < Test::Unit::TestCase
     # '$(foo)' => [ ],
     '"foo"'    => [ word('"foo"')],
     '\'foo\''  => [ word('\'foo\'')],
+    '${foo}'   => [ word('${foo}') ], # TODO: is this right?
+    '$foo'     => [ word('$foo') ], # TODO: is this right?
+    # 'foo=bar'  => [ aword('foo=bar') ], # TODO
   }
 
   TEST_CASES.each do |test_case, expected|

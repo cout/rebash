@@ -478,6 +478,15 @@ class Tokenizer
     return [?0, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9].include?(character)
   end
 
+  def command_token_position(token)
+    return (token == ASSIGNMENT_WORD) || @pst_redirlist ||
+    (token != SEMI_SEMI && token != SEMI_AND && token != SEMI_SEMI_AND && reserved_word_acceptable(token))
+  end
+
+  def assignment_acceptable(token)
+    return command_token_position(token) && !@pst_casepat
+  end
+
   def read_token_word(character)
     dollar_present = false # becomes true if we see a `$'
     quoted = false         # becomes true if we see one of ("), ('), (`), or (\)
