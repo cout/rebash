@@ -115,6 +115,203 @@ class Tokenizer
     return nil
   end
 
+  def parse_matched_pair(qc, open, close, flags)
+    count = 1
+    tflags = { }
+
+    if flags[:command] and qc != ?` and qc != ?' and qc != ?" and not flags[:dquote] then
+      tflags[:ckcomment] = true
+    end
+
+    # rflags is the set of flags we want to pass to recursive calls.
+    if qc == ?" then
+      rflags = { :dquote => true}
+    else
+      rflags = tflags.dup
+      rflags[:dquote] = true
+    end
+
+    ret = ''
+
+    ch = nil
+
+    set_wasdol = proc {
+      if ch == ?$ then
+        tflags[:wasdol] = true
+      else
+        tflags[:wasdol] = false
+      end
+    }
+
+    parse_dollar_word = proc {
+      if open == ch then # undo previous increment
+        count -= 1
+      end
+
+      if ch == ?( then
+        nestflags = rflags.dup
+        nestflags[:command] = true
+        nestflags[:dquote] = false
+        nestret = parse_comsub(0, ?(, ?), nestflags)
+      elsif ch == ?{ then
+        nestflags = rflags.dup
+        nestflags[:firstclose] = true
+        nestret = parse_matched_pair(?\000, ?{, ?}, nestflags)
+      elsif ch == ?[ then
+        nestret = parse_matched_pair(?\000, ?[, ?], rflags)
+      end
+
+      ret << nestret
+
+      set_wasdol.call()
+    }
+
+    while count > 0 do
+      ch = shell_getc(qc != ?' && !tflags[:passnext])
+
+      if ch == EOF then
+        # TODO: how to make this work in interactive mode?
+        raise "Unexpected EOF while looking for matching `#{close}'"
+      end
+
+      # Don't bother counting parens or doing anything elsif in a
+      # comment or part of a case statement.
+      if tflags[:incomment] then
+        ret << ch.chr
+
+        if ch == ?\n then
+          tflags[:incomment] = false
+        end
+
+        next
+
+      # Not exactly right yet, should handle shell metacharacters, too.
+      # If any changes are made to this test, make analgous changes to
+      # subst.c: extract_delimited_string().
+      elsif tflags[:ckcomment] and not tflags[:incomment] and ch == ?# and (ret.length == 0 or ret[-1] == ?\n or shellblank(ret[-1])) then
+        tflags[:incomment] = true
+      end
+
+      if tflags[:passnext] then # last char was backslash
+        tflags[:passnext] = false
+        if qc != ?' and ch == ?\n then # double-quoted \<newline> disappears.
+          ret.chop!
+        end
+
+        if ch == CTLESC or ch == CTLNUL then
+          ret << CTLESC.chr
+        end
+
+        ret << ch.chr
+        next
+
+      # If we're reparsing the input (e.g., from
+      # parse_string_to_word_list), we've already prepended CTLESC to
+      # single-quoted results of $'...'.  We may want to do this for other
+      # CTLESC-quoted characters in reparse, too.
+      elsif @pst_reparse and open == ?' and (ch == CTLESC || ch == CTLNUL) then
+        ret << ch.chr
+        next
+
+      elsif ch == CTLESC or ch == CTLNUL then # special shell escapes
+        ret << CTLESC.chr
+        ret << ch.chr
+        next
+
+      elsif ch == close then # ending delimiter
+        count -= 1
+
+      # handle nested ${...} specially.
+      elsif open != close and tflags[:wasdol] and open == ?{ and ch == open then
+        count += 1
+
+      elsif not flags[:firstclose] and ch == open # nested begin
+        count += 1
+
+      end
+
+      # Add this character.
+      ret << ch.chr
+
+      # If we just read the ending character, don't bother continuing.
+      break if count == 0
+
+      if open == ?' then # '' inside grouping construct
+        if flags[:allowesc] and ch == ?\\ then
+          tflags[:passnext] = true
+          next
+        end
+      end
+
+      if ch == ?\\ then # backslashes
+        tflags[:passnext] = true
+      end
+
+      # Could also check open == '`' if we want to parse grouping
+      # constructs inside old-style command substitution.
+      if open != close then # a grouping construct
+        if shellquote(ch) then
+          # '', ``, or "" inside $(...) or other grouping construct.
+          @dstack.push(ch)
+          nestflags = rflags.dup
+          if tflags[:wasdol] and ch == ?' then # $'...' inside group
+            nestflags[:allowesc] = true
+          end
+          nestret = parse_matched_pair(ch, ch, ch, nestflags)
+          @dstack.pop()
+          # TODO: CHECK_NESTRET_ERROR
+
+          if tflags[:wasdol] and ch == ?' and (extended_quote or not rflags[:dquote]) then
+            # Translate $'...' here.
+            ttrans = ansiexpand(nestret, 0)
+
+            if not rflags[:dquote] then
+              nestret = sh_single_quote(ttrans)
+            else
+              nestret = ttrans
+            end
+
+            # back up before the $'
+            ret.chop()
+            ret.chop()
+
+          elsif tflags[:wasdol] and ch == ?" and (extended_quote or note rflags[:dquote]) then
+            # Locale expand $"..." here.
+            ttrans = localeexpand(nestret, 0, start_lineno)
+            nestret = sh_mkdoublequoted(ttrans, 0)
+
+            # back up before the $"
+            ret.chop()
+            ret.chop()
+
+          end
+
+        ret << nestret
+
+        elsif flags[:arraysub] and tflags[:wasdol] and (ch == ?( or ch == ?{ or ch == ?[) then
+          parse_dollar_word.call()
+          next
+        end
+
+      # Parse an old-style command substitution within double quotes as a
+      # single word.
+      # XXX - sh and ksh93 don't do this - XXX
+      elsif open == ?" and ch == ?` then
+        nestret = parse_matched_pair(?\000, ?`, ?`, rflags)
+        ret << nestret
+
+      elsif open != ?` and tflags[:wasdol] and (ch == ?( or ch == ?{ or ch == ?[) then
+        # check for $(), $[], or ${} inside quoted string.
+        parse_dollar_word.call()
+        next
+      end
+
+      set_wasdol.call()
+    end
+
+    return ret
+  end
+
   def shellmeta(c)
     return SH_SYNTAXTAB[c].cshmeta
   end
@@ -225,7 +422,7 @@ class Tokenizer
     end
 
     while true do
-      character = shell_getc(1)
+      character = shell_getc(true)
       return EOF if character == EOF
 
       if shellblank(character) then
@@ -235,7 +432,7 @@ class Tokenizer
       if character == ?# && (not @interactive or @interactive_comments) then
         # A comment.  Discard until EOL or EOF, and then return a newline.
         comment = ''
-        while (character = shell_getc(1)) and character != ?\n and character != EOF do
+        while (character = shell_getc(true)) and character != ?\n and character != EOF do
           comment << character.chr
         end
         shell_ungetc(character)
@@ -415,7 +612,7 @@ class Tokenizer
       # Handle backslashes.  Quote lots of things when not inside of
       # double-quotes, quote some things inside of double-quotes.
       if character == ?\\ then
-        peek_char = shell_getc(0)
+        peek_char = shell_getc(false)
 
         # Backslash-newline is ignored in all cases except when quoted
         # with single quotes.
@@ -440,12 +637,12 @@ class Tokenizer
       # Parse a matched pair of quote characters.
       if shellquote(character) then
         @dstack.push(character)
-        ttok = parse_matched_pair(character, character, character, (character == ?`) ? P_COMMAND : 0)
+        ttok = parse_matched_pair(character, character, character, :command => (character == ?`) ? true : false)
         token << character.chr
         token << ttok
         all_digit_token = false
         quoted = true
-        dollar_present ||= (character == ?" && strchr(ttok, ?$) != 0)
+        dollar_present ||= (character == ?" && ttok.index(?$))
         next_character.call()
         next
       end
@@ -461,7 +658,7 @@ class Tokenizer
         end
 
         @dstack.push(character)
-        ttok = parse_matched_pair(cd, ?(, ?), 0)
+        ttok = parse_matched_pair(cd, ?(, ?))
         token << character.chr
         token << ttok
         dollar_present = false
@@ -472,10 +669,10 @@ class Tokenizer
 
       # Parse a ksh-style extended pattern matching specification.
       if @extended_glob && PATTERN_CHAR(character) then
-        peek_char = shell_getc(1)
+        peek_char = shell_getc(true)
         if peek_char == ?( then
           @dstack.push(peek_char)
-          ttok = parse_matched_pair(cd, ?(, ?), 0)
+          ttok = parse_matched_pair(cd, ?(, ?))
           @dstack.pop()
           token << character.chr
           token << ttok
@@ -491,13 +688,13 @@ class Tokenizer
       # If the delimiter character is not single quote, parse some of
       # the shell expansions that must be read as a single word.
       if shellexp(character) then
-        peek_char = shell_getc(1)
+        peek_char = shell_getc(true)
         # $(...), <(...), >(...), $((...)), ${...}, and $[...]
         # constructs
         if peek_char == ?( ||
                   ((peek_char == ?{ || peek_char == ?[) && character == ?$) then
           if peek_char == ?{ then
-            ttok = parse_matched_pair(cd, ?{, ?}, P_FIRSTCLOSE)
+            ttok = parse_matched_pair(cd, ?{, ?}, :firstclose => true)
           elsif peek_char == ?( then
             # XXX - push and pop the `(' as a delimiter for use by the
             # command-oriented-history code.  This way newlines
@@ -505,10 +702,10 @@ class Tokenizer
             # literally rather than causing a possibly-incorrect `;'
             # to be added.
             @dstack.push(peek_char)
-            ttok = parse_comsub(cd, ?(, ?), P_COMMAND)
+            ttok = parse_comsub(cd, ?(, ?), :command => true)
             @dstack.pop()
           else
-            ttok = parse_matched_pair(cd, ?[, ?], 0)
+            ttok = parse_matched_pair(cd, ?[, ?])
           end
 
           token << character.chr
@@ -523,7 +720,7 @@ class Tokenizer
         elsif character == ?$ && (peek_char == ?' || peek_char == ?") then
           first_line = line_number
           @dstack.push(peek_char)
-          ttok = parse_matched_pair(peek_char, peek_char, peek_char, (peek_char == ?') ? P_ALLOWESC : 0)
+          ttok = parse_matched_pair(peek_char, peek_char, peek_char, :allowesc => (peek_char == ?') ? true : false)
           @dstack.pop()
           if peek_char == ?' then
             ttrans = ansiexpand(ttok, 0)
@@ -563,14 +760,14 @@ class Tokenizer
       elsif character == ?[ &&
                    ((token.length > 0 && assignment_acceptable(@last_read_token) && token_is_ident(token)) or
                     (token == 0 && @pst_compassign)) then
-        ttok = parse_matched_pair(cd, ?[, ?], P_ARRAYSUB)
+        ttok = parse_matched_pair(cd, ?[, ?], :arraysub => true)
         token << character.chr
         token << ttok
         all_digit_token = false
 
         # Identify possible compound array variable assignment.
       elsif character == ?= && token.length() > 0 && (assignment_acceptable(@last_read_token) || @pst_assignok) && token_is_assignment(token, token_ident) then
-        peek_char = shell_getc(1)
+        peek_char = shell_getc(true)
         if peek_char == ?( then
           ttok = parse_compound_assignment()
           token << "=(#{ttok})"
@@ -596,6 +793,35 @@ class Tokenizer
     got_token.call()
   end
 
+  # Parse a $(...) command substitution.  This is messier than I'd like,
+  # and reproduces a lot more of the token-reading code than I'd like.
+  def parse_comsub(qc, open, close, flags)
+    count = 1
+    tflags = { :reswdok => true }
+
+    if flags[:command] and qc != ?' and qc != ?" and not flags[:dquote] then
+      tflags[:ckcase] = true
+    end
+
+    if tflags[:ckcase] and (not @interactive or @interactive_comments) then
+      tflags[:ckcomment] = false
+    end
+
+    # rflags is the set of flags we want to pass to recursive calls.
+    rflags = flags.dup
+    rflags[:qduote] = true
+
+    ret = ''
+
+    start_lineno = @line_number
+
+    heredelim = false
+
+    # TODO
+  end
+
+
+
   def read_shellmeta(character)
     # Turn off alias tokenization iff this character sequence would
     # not leave us ready to read a command.
@@ -605,13 +831,13 @@ class Tokenizer
 
     @pst_assignok = false
 
-    peek_char = shell_getc(1)
+    peek_char = shell_getc(true)
     if character == peek_char then
       case character
       when ?<
         # If '<' then we could be at '<<' or at '<<-'.  We have to
         # look ahead one more character.
-        peek_char = shell_getc(1)
+        peek_char = shell_getc(true)
         case peek_char
         when ?- then return LESS_LESS_MINUS
         when ?< then return LESS_LESS_LESS
@@ -625,7 +851,7 @@ class Tokenizer
         @pst_casepat = true
         @pst_alexpnext = false
 
-        peek_char = shell_getc(1)
+        peek_char = shell_getc(true)
         case peek_char
         when ?& then return SEMI_SEMI_AND
         else; return SEMI_SEMI
@@ -658,7 +884,7 @@ class Tokenizer
       return GREATER_BAR
 
     elsif character == ?& && peek_char == ?> then
-      peek_char = shell_getc(1)
+      peek_char = shell_getc(true)
       case peek_char
       when ?> then return AND_GREATER_GREATER
       else; shell_ungetc(peek_char); return AND_GREATER

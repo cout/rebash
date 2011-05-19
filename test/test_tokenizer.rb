@@ -15,12 +15,16 @@ class TokenizerTest < Test::Unit::TestCase
   TEST_CASES = {
     'ls'     => [ word('ls') ],
     'ls -l'  => [ word('ls'), whitespace(' '), word('-l') ],
+    # 'for'    => [ FOR ],
+    # 'do'     => [ DO ],
+    # '$(foo)' => [ ],
+    '"foo"'    => [ word('"foo"')],
+    '\'foo\''  => [ word('\'foo\'')],
   }
 
   TEST_CASES.each do |test_case, expected|
     test_name = test_case.dup
     test_name.tr!(' \t', '__')
-    test_name.gsub!(/-/, 'dash')
 
     define_method("test_#{test_name}") do
       t = Tokenizer.new(test_case)
